@@ -1,24 +1,39 @@
 import React, { useState, useEffect } from 'react';
-import { Camera, Package, Plus, Edit2, Trash2, LogOut, Search, Tag, ArrowLeft } from 'lucide-react';
-
-
+import { Camera, Package, Plus, Edit2, Trash2, LogOut, Search, Tag, ArrowLeft, Users, Share2 } from 'lucide-react';
 
 const App = () => {
-  const [token, setToken] = useState(null);
+  const [token, setToken] = useState(localStorage.getItem('token'));
   const [currentUser, setCurrentUser] = useState(null);
   const [boxes, setBoxes] = useState([]);
   const [selectedBox, setSelectedBox] = useState(null);
   const [items, setItems] = useState([]);
-  const [view, setView] = useState('login');
+  const [view, setView] = useState(token ? 'boxes' : 'login');
   const [formData, setFormData] = useState({});
   const [searchTerm, setSearchTerm] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  // Автоматична синхронізація кожні 5 хвилин
+  useEffect(() => {
+    if (!token) return;
+
+    const syncData = async () => {
+      await fetchBoxes();
+      if (selectedBox) {
+        await fetchItems(selectedBox.id);
+      }
+    };
+
+    syncData(); // Перша синхронізація
+    const interval = setInterval(syncData, 5 * 60 * 1000); // Кожні 5 хвилин
+
+    return () => clearInterval(interval);
+  }, [token, selectedBox]);
 
   useEffect(() => {
     if (token) {
-      fetchBoxes();
       fetchCurrentUser();
+      fetchBoxes();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   useEffect(() => {
@@ -27,72 +42,202 @@ const App = () => {
     }
   }, [selectedBox]);
 
+  const apiRequest = async (endpoint, options = {}) => {
+    const config = {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        ...options.headers,
+      },
+      ...options,
+    };
+
+    const response = await fetch(`/api${endpoint}`, config);
+    
+    if (response.status === 401) {
+      handleLogout();
+      throw new Error('Неавторизований доступ');
+    }
+
+    if (!response.ok) {
+      throw new Error(`Помилка: ${response.status}`);
+    }
+
+    return response.json();
+  };
+
   const fetchCurrentUser = async () => {
-    setCurrentUser({ username: 'Demo User' });
+    try {
+      const user = await apiRequest('/users/me');
+      setCurrentUser(user);
+    } catch (error) {
+      console.error('Помилка завантаження користувача:', error);
+    }
   };
 
   const fetchBoxes = async () => {
-    setBoxes([
-      { id: 1, name: 'Коробка 1', description: 'Літні речі', location: 'Гараж', items_count: 5 },
-      { id: 2, name: 'Коробка 2', description: 'Електроніка', location: 'Кладовка', items_count: 3 },
-      { id: 3, name: 'Коробка 3', description: 'Книги та документи', location: 'Шафа', items_count: 8 }
-    ]);
+    try {
+      const boxesData = await apiRequest('/boxes');
+      setBoxes(boxesData);
+    } catch (error) {
+      console.error('Помилка завантаження коробок:', error);
+    }
   };
 
   const fetchItems = async (boxId) => {
-    setItems([
-      { id: 1, name: 'Футболка', description: 'Біла футболка Nike', category: 'Одяг', photo_url: '' },
-      { id: 2, name: 'Кросівки', description: 'Чорні Adidas', category: 'Одяг', photo_url: '' },
-      { id: 3, name: 'Навушники', description: 'Sony WH-1000XM4', category: 'Електроніка', photo_url: '' }
-    ]);
+    try {
+      const itemsData = await apiRequest(`/boxes/${boxId}/items`);
+      setItems(itemsData);
+    } catch (error) {
+      console.error('Помилка завантаження речей:', error);
+    }
   };
 
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
-    setToken('demo-token-12345');
-    setView('boxes');
-    setFormData({});
+    setLoading(true);
+
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: formData.email,
+          password: formData.password,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Невірний email або пароль');
+      }
+
+      const data = await response.json();
+      const newToken = data.access_token;
+      
+      localStorage.setItem('token', newToken);
+      setToken(newToken);
+      setView('boxes');
+      setFormData({});
+    } catch (error) {
+      alert(error.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleRegister = (e) => {
+  const handleRegister = async (e) => {
     e.preventDefault();
-    alert('Реєстрація успішна! Увійдіть у систему');
-    setView('login');
-    setFormData({});
+    setLoading(true);
+
+    try {
+      const response = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          username: formData.username,
+          email: formData.email,
+          password: formData.password,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Помилка реєстрації');
+      }
+
+      alert('Реєстрація успішна! Увійдіть у систему');
+      setView('login');
+      setFormData({});
+    } catch (error) {
+      alert(error.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleLogout = () => {
+    localStorage.removeItem('token');
     setToken(null);
     setView('login');
     setBoxes([]);
     setItems([]);
     setSelectedBox(null);
+    setCurrentUser(null);
   };
 
-  const handleAddItem = (e) => {
+  const handleAddBox = async (e) => {
     e.preventDefault();
-    const newItem = {
-      id: Date.now(),
-      name: formData.name,
-      description: formData.description || '',
-      category: formData.category,
-      photo_url: formData.photo_url || '',
-      box_id: selectedBox.id
-    };
-    setItems([...items, newItem]);
-    setView('boxDetail');
-    setFormData({});
+    try {
+      const newBox = await apiRequest('/boxes', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: formData.name,
+          description: formData.description,
+          location: formData.location,
+        }),
+      });
+
+      setBoxes([...boxes, newBox]);
+      setView('boxes');
+      setFormData({});
+    } catch (error) {
+      alert('Помилка створення коробки');
+    }
   };
 
-  const handleDeleteItem = (itemId) => {
-    if (window.confirm('Видалити цю річ?')) {
+  const handleAddItem = async (e) => {
+    e.preventDefault();
+    try {
+      const newItem = await apiRequest(`/boxes/${selectedBox.id}/items`, {
+        method: 'POST',
+        body: JSON.stringify({
+          name: formData.name,
+          description: formData.description,
+          category: formData.category,
+          photo_url: formData.photo_url || null,
+        }),
+      });
+
+      setItems([...items, newItem]);
+      setView('boxDetail');
+      setFormData({});
+    } catch (error) {
+      alert('Помилка додавання речі');
+    }
+  };
+
+  const handleDeleteItem = async (itemId) => {
+    if (!window.confirm('Видалити цю річ?')) return;
+
+    try {
+      await apiRequest(`/items/${itemId}`, {
+        method: 'DELETE',
+      });
+
       setItems(items.filter(item => item.id !== itemId));
+    } catch (error) {
+      alert('Помилка видалення речі');
+    }
+  };
+
+  const handleShareBox = async (boxId, email) => {
+    try {
+      await apiRequest(`/boxes/${boxId}/share`, {
+        method: 'POST',
+        body: JSON.stringify({ email }),
+      });
+      alert('Коробку поділено успішно!');
+    } catch (error) {
+      alert('Помилка спільного доступу');
     }
   };
 
   const filteredItems = items.filter(item =>
     item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    item.category.toLowerCase().includes(searchTerm.toLowerCase())
+    (item.category && item.category.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
   if (!token) {
@@ -114,7 +259,7 @@ const App = () => {
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                   value={formData.email || ''}
                   onChange={(e) => setFormData({...formData, email: e.target.value})}
-                  onKeyPress={(e) => e.key === 'Enter' && handleLogin(e)}
+                  disabled={loading}
                 />
               </div>
               <div>
@@ -124,13 +269,22 @@ const App = () => {
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                   value={formData.password || ''}
                   onChange={(e) => setFormData({...formData, password: e.target.value})}
+                  disabled={loading}
                   onKeyPress={(e) => e.key === 'Enter' && handleLogin(e)}
                 />
               </div>
-              <button onClick={handleLogin} className="w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 transition">
-                Увійти
+              <button 
+                onClick={handleLogin} 
+                disabled={loading}
+                className="w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 transition disabled:bg-gray-300 disabled:cursor-not-allowed"
+              >
+                {loading ? 'Вхід...' : 'Увійти'}
               </button>
-              <button onClick={() => setView('register')} className="w-full text-indigo-600 hover:underline">
+              <button 
+                onClick={() => setView('register')} 
+                disabled={loading}
+                className="w-full text-indigo-600 hover:underline disabled:text-gray-400"
+              >
                 Немає акаунта? Зареєструватись
               </button>
             </div>
@@ -143,6 +297,7 @@ const App = () => {
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                   value={formData.username || ''}
                   onChange={(e) => setFormData({...formData, username: e.target.value})}
+                  disabled={loading}
                 />
               </div>
               <div>
@@ -152,6 +307,7 @@ const App = () => {
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                   value={formData.email || ''}
                   onChange={(e) => setFormData({...formData, email: e.target.value})}
+                  disabled={loading}
                 />
               </div>
               <div>
@@ -161,13 +317,22 @@ const App = () => {
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                   value={formData.password || ''}
                   onChange={(e) => setFormData({...formData, password: e.target.value})}
+                  disabled={loading}
                   onKeyPress={(e) => e.key === 'Enter' && handleRegister(e)}
                 />
               </div>
-              <button onClick={handleRegister} className="w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 transition">
-                Зареєструватись
+              <button 
+                onClick={handleRegister} 
+                disabled={loading}
+                className="w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 transition disabled:bg-gray-300 disabled:cursor-not-allowed"
+              >
+                {loading ? 'Реєстрація...' : 'Зареєструватись'}
               </button>
-              <button onClick={() => setView('login')} className="w-full text-indigo-600 hover:underline">
+              <button 
+                onClick={() => setView('login')} 
+                disabled={loading}
+                className="w-full text-indigo-600 hover:underline disabled:text-gray-400"
+              >
                 Вже є акаунт? Увійти
               </button>
             </div>
@@ -186,7 +351,9 @@ const App = () => {
             <h1 className="text-2xl font-bold text-gray-800">MyStorage</h1>
           </div>
           <div className="flex items-center gap-4">
-            <span className="text-sm text-gray-600">{currentUser && currentUser.username ? currentUser.username : 'Користувач'}</span>
+            <span className="text-sm text-gray-600">
+              {currentUser ? currentUser.username : 'Завантаження...'}
+            </span>
             <button onClick={handleLogout} className="flex items-center gap-2 text-red-600 hover:text-red-700">
               <LogOut className="w-5 h-5" />
             </button>
@@ -199,7 +366,10 @@ const App = () => {
           <div>
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-2xl font-bold text-gray-800">Мої коробки</h2>
-              <button className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition">
+              <button 
+                onClick={() => setView('addBox')}
+                className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition"
+              >
                 <Plus className="w-5 h-5" />
                 Додати коробку
               </button>
@@ -215,9 +385,12 @@ const App = () => {
                   }}
                   className="bg-white rounded-xl shadow-md p-6 hover:shadow-lg transition cursor-pointer"
                 >
-                  <div className="flex items-center gap-3 mb-3">
-                    <Package className="w-8 h-8 text-indigo-600" />
-                    <h3 className="text-xl font-semibold text-gray-800">{box.name}</h3>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-3">
+                      <Package className="w-8 h-8 text-indigo-600" />
+                      <h3 className="text-xl font-semibold text-gray-800">{box.name}</h3>
+                    </div>
+                    {box.shared && <Users className="w-5 h-5 text-green-500" />}
                   </div>
                   <p className="text-gray-600 text-sm mb-2">{box.description}</p>
                   <p className="text-sm text-gray-500">📍 {box.location}</p>
@@ -226,6 +399,76 @@ const App = () => {
                   </p>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {view === 'addBox' && (
+          <div className="max-w-2xl mx-auto">
+            <button
+              onClick={() => setView('boxes')}
+              className="mb-4 flex items-center gap-2 text-indigo-600 hover:underline"
+            >
+              <ArrowLeft className="w-5 h-5" />
+              Назад до коробок
+            </button>
+            
+            <div className="bg-white rounded-xl shadow-md p-6">
+              <h2 className="text-2xl font-bold text-gray-800 mb-6">Додати нову коробку</h2>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Назва коробки *</label>
+                  <input
+                    type="text"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    value={formData.name || ''}
+                    onChange={(e) => setFormData({...formData, name: e.target.value})}
+                    placeholder="Наприклад: Літній одяг"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Опис</label>
+                  <textarea
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
+                    rows={3}
+                    value={formData.description || ''}
+                    onChange={(e) => setFormData({...formData, description: e.target.value})}
+                    placeholder="Опишіть вміст коробки..."
+                  ></textarea>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Місцезнаходження</label>
+                  <input
+                    type="text"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    value={formData.location || ''}
+                    onChange={(e) => setFormData({...formData, location: e.target.value})}
+                    placeholder="Наприклад: Гараж, верхня полиця"
+                  />
+                </div>
+                
+                <div className="flex gap-4 pt-4">
+                  <button
+                    onClick={handleAddBox}
+                    disabled={!formData.name}
+                    className="flex-1 bg-indigo-600 text-white py-3 rounded-lg hover:bg-indigo-700 transition disabled:bg-gray-300 disabled:cursor-not-allowed"
+                  >
+                    Створити коробку
+                  </button>
+                  <button
+                    onClick={() => {
+                      setView('boxes');
+                      setFormData({});
+                    }}
+                    className="flex-1 bg-gray-200 text-gray-700 py-3 rounded-lg hover:bg-gray-300 transition"
+                  >
+                    Скасувати
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -245,9 +488,25 @@ const App = () => {
             </button>
             
             <div className="bg-white rounded-xl shadow-md p-6 mb-6">
-              <h2 className="text-2xl font-bold text-gray-800 mb-2">{selectedBox.name}</h2>
-              <p className="text-gray-600">{selectedBox.description}</p>
-              <p className="text-sm text-gray-500 mt-2">📍 {selectedBox.location}</p>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-800 mb-2">{selectedBox.name}</h2>
+                  <p className="text-gray-600">{selectedBox.description}</p>
+                  <p className="text-sm text-gray-500 mt-2">📍 {selectedBox.location}</p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      const email = prompt('Введіть email користувача для спільного доступу:');
+                      if (email) handleShareBox(selectedBox.id, email);
+                    }}
+                    className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition"
+                  >
+                    <Share2 className="w-4 h-4" />
+                    Поділитися
+                  </button>
+                </div>
+              </div>
             </div>
 
             <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4 mb-6">
