@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Camera, Package, Plus, Edit2, Trash2, LogOut, Search, Tag, ArrowLeft, Users, Share2 } from 'lucide-react';
 
+const API_URL = '/api';
+
 const App = () => {
   const [token, setToken] = useState(localStorage.getItem('token'));
   const [currentUser, setCurrentUser] = useState(null);
@@ -23,8 +25,8 @@ const App = () => {
       }
     };
 
-    syncData(); // Перша синхронізація
-    const interval = setInterval(syncData, 5 * 60 * 1000); // Кожні 5 хвилин
+    syncData();
+    const interval = setInterval(syncData, 5 * 60 * 1000);
 
     return () => clearInterval(interval);
   }, [token, selectedBox]);
@@ -52,23 +54,29 @@ const App = () => {
       ...options,
     };
 
-    const response = await fetch(`/api${endpoint}`, config);
-    
-    if (response.status === 401) {
-      handleLogout();
-      throw new Error('Неавторизований доступ');
-    }
+    try {
+      const response = await fetch(`${API_URL}${endpoint}`, config);
+      
+      if (response.status === 401) {
+        handleLogout();
+        throw new Error('Неавторизований доступ');
+      }
 
-    if (!response.ok) {
-      throw new Error(`Помилка: ${response.status}`);
-    }
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || `Помилка: ${response.status}`);
+      }
 
-    return response.json();
+      return await response.json();
+    } catch (error) {
+      console.error('API Error:', error);
+      throw error;
+    }
   };
 
   const fetchCurrentUser = async () => {
     try {
-      const user = await apiRequest('/users/me');
+      const user = await apiRequest('/auth/me');
       setCurrentUser(user);
     } catch (error) {
       console.error('Помилка завантаження користувача:', error);
@@ -86,58 +94,27 @@ const App = () => {
 
   const fetchItems = async (boxId) => {
     try {
-      const itemsData = await apiRequest(`/boxes/${boxId}/items`);
+      const itemsData = await apiRequest(`/items?box_id=${boxId}`);
       setItems(itemsData);
     } catch (error) {
       console.error('Помилка завантаження речей:', error);
+      setItems([]);
     }
   };
 
-  const handleLogin = async (e) => {
+  const handleAuth = async (e, isLogin = true) => {
     e.preventDefault();
     setLoading(true);
 
     try {
-      const response = await fetch('/api/auth/login', {
+      const endpoint = isLogin ? '/auth/login' : '/auth/register';
+      const response = await fetch(`${API_URL}${endpoint}`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(isLogin ? {
           email: formData.email,
           password: formData.password,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Невірний email або пароль');
-      }
-
-      const data = await response.json();
-      const newToken = data.access_token;
-      
-      localStorage.setItem('token', newToken);
-      setToken(newToken);
-      setView('boxes');
-      setFormData({});
-    } catch (error) {
-      alert(error.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleRegister = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-
-    try {
-      const response = await fetch('/api/auth/register', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+        } : {
           username: formData.username,
           email: formData.email,
           password: formData.password,
@@ -145,11 +122,20 @@ const App = () => {
       });
 
       if (!response.ok) {
-        throw new Error('Помилка реєстрації');
+        const errorData = await response.json();
+        throw new Error(errorData.detail || (isLogin ? 'Невірний email або пароль' : 'Помилка реєстрації'));
       }
 
-      alert('Реєстрація успішна! Увійдіть у систему');
-      setView('login');
+      if (isLogin) {
+        const data = await response.json();
+        const newToken = data.access_token;
+        localStorage.setItem('token', newToken);
+        setToken(newToken);
+        setView('boxes');
+      } else {
+        alert('Реєстрація успішна! Увійдіть у систему');
+        setView('login');
+      }
       setFormData({});
     } catch (error) {
       alert(error.message);
@@ -168,44 +154,41 @@ const App = () => {
     setCurrentUser(null);
   };
 
-  const handleAddBox = async (e) => {
+  const handleCreate = async (e, type) => {
     e.preventDefault();
+    setLoading(true);
+
     try {
-      const newBox = await apiRequest('/boxes', {
+      const endpoint = type === 'box' ? '/boxes' : '/items';
+      const body = type === 'box' ? {
+        name: formData.name,
+        description: formData.description || '',
+        location: formData.location || '',
+      } : {
+        name: formData.name,
+        description: formData.description || '',
+        category: formData.category,
+        photo_url: formData.photo_url || '',
+        box_id: selectedBox.id,
+      };
+
+      const newItem = await apiRequest(endpoint, {
         method: 'POST',
-        body: JSON.stringify({
-          name: formData.name,
-          description: formData.description,
-          location: formData.location,
-        }),
+        body: JSON.stringify(body),
       });
 
-      setBoxes([...boxes, newBox]);
-      setView('boxes');
+      if (type === 'box') {
+        setBoxes([...boxes, newItem]);
+        setView('boxes');
+      } else {
+        setItems([...items, newItem]);
+        setView('boxDetail');
+      }
       setFormData({});
     } catch (error) {
-      alert('Помилка створення коробки');
-    }
-  };
-
-  const handleAddItem = async (e) => {
-    e.preventDefault();
-    try {
-      const newItem = await apiRequest(`/boxes/${selectedBox.id}/items`, {
-        method: 'POST',
-        body: JSON.stringify({
-          name: formData.name,
-          description: formData.description,
-          category: formData.category,
-          photo_url: formData.photo_url || null,
-        }),
-      });
-
-      setItems([...items, newItem]);
-      setView('boxDetail');
-      setFormData({});
-    } catch (error) {
-      alert('Помилка додавання речі');
+      alert(`Помилка ${type === 'box' ? 'створення коробки' : 'додавання речі'}: ${error.message}`);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -213,26 +196,181 @@ const App = () => {
     if (!window.confirm('Видалити цю річ?')) return;
 
     try {
-      await apiRequest(`/items/${itemId}`, {
-        method: 'DELETE',
-      });
-
+      await apiRequest(`/items/${itemId}`, { method: 'DELETE' });
       setItems(items.filter(item => item.id !== itemId));
     } catch (error) {
-      alert('Помилка видалення речі');
+      alert('Помилка видалення речі: ' + error.message);
     }
   };
 
-  const handleShareBox = async (boxId, email) => {
+  const handleShareBox = async (boxId) => {
+    const userEmail = prompt('Введіть email користувача для спільного доступу:');
+    if (!userEmail) return;
+
     try {
       await apiRequest(`/boxes/${boxId}/share`, {
         method: 'POST',
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ user_email: userEmail }),
       });
       alert('Коробку поділено успішно!');
     } catch (error) {
-      alert('Помилка спільного доступу');
+      alert('Помилка спільного доступу: ' + error.message);
     }
+  };
+
+  const AuthForm = ({ isLogin }) => (
+    <form onSubmit={(e) => handleAuth(e, isLogin)} className="space-y-4">
+      {!isLogin && (
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Ім'я користувача</label>
+          <input
+            type="text"
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+            value={formData.username || ''}
+            onChange={(e) => setFormData({...formData, username: e.target.value})}
+            disabled={loading}
+            required
+          />
+        </div>
+      )}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+        <input
+          type="email"
+          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+          value={formData.email || ''}
+          onChange={(e) => setFormData({...formData, email: e.target.value})}
+          disabled={loading}
+          required
+        />
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Пароль</label>
+        <input
+          type="password"
+          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+          value={formData.password || ''}
+          onChange={(e) => setFormData({...formData, password: e.target.value})}
+          disabled={loading}
+          required
+        />
+      </div>
+      <button 
+        type="submit"
+        disabled={loading}
+        className="w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 transition disabled:bg-gray-300 disabled:cursor-not-allowed"
+      >
+        {loading ? (isLogin ? 'Вхід...' : 'Реєстрація...') : (isLogin ? 'Увійти' : 'Зареєструватись')}
+      </button>
+      <button 
+        type="button"
+        onClick={() => setView(isLogin ? 'register' : 'login')} 
+        disabled={loading}
+        className="w-full text-indigo-600 hover:underline disabled:text-gray-400"
+      >
+        {isLogin ? 'Немає акаунта? Зареєструватись' : 'Вже є акаунт? Увійти'}
+      </button>
+    </form>
+  );
+
+  const CreateForm = ({ type, onCancel }) => {
+    const fields = {
+      box: [
+        { label: 'Назва коробки *', name: 'name', type: 'text', placeholder: 'Наприклад: Літній одяг' },
+        { label: 'Опис', name: 'description', type: 'textarea', placeholder: 'Опишіть вміст коробки...' },
+        { label: 'Місцезнаходження', name: 'location', type: 'text', placeholder: 'Наприклад: Гараж, верхня полиця' },
+      ],
+      item: [
+        { label: 'Назва речі *', name: 'name', type: 'text', placeholder: 'Наприклад: Футболка Nike' },
+        { label: 'Опис', name: 'description', type: 'textarea', placeholder: 'Додайте детальний опис...' },
+        { 
+          label: 'Категорія *', 
+          name: 'category', 
+          type: 'select', 
+          options: ['Одяг', 'Електроніка', 'Книги', 'Посуд', 'Інструменти', 'Іграшки', 'Спорт', 'Декор', 'Інше'] 
+        },
+        { label: 'URL фото', name: 'photo_url', type: 'url', placeholder: 'https://example.com/photo.jpg' },
+      ]
+    };
+
+    return (
+      <div className="max-w-2xl mx-auto">
+        <button
+          onClick={onCancel}
+          className="mb-4 flex items-center gap-2 text-indigo-600 hover:underline"
+        >
+          <ArrowLeft className="w-5 h-5" />
+          Назад
+        </button>
+        
+        <div className="bg-white rounded-xl shadow-md p-6">
+          <h2 className="text-2xl font-bold text-gray-800 mb-6">
+            {type === 'box' ? 'Додати нову коробку' : 'Додати нову річ'}
+          </h2>
+          
+          <form onSubmit={(e) => handleCreate(e, type)} className="space-y-4">
+            {fields[type].map(field => (
+              <div key={field.name}>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{field.label}</label>
+                {field.type === 'textarea' ? (
+                  <textarea
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
+                    rows={3}
+                    value={formData[field.name] || ''}
+                    onChange={(e) => setFormData({...formData, [field.name]: e.target.value})}
+                    placeholder={field.placeholder}
+                  />
+                ) : field.type === 'select' ? (
+                  <select
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    value={formData[field.name] || ''}
+                    onChange={(e) => setFormData({...formData, [field.name]: e.target.value})}
+                    required={field.label.includes('*')}
+                  >
+                    <option value="">Виберіть категорію</option>
+                    {field.options.map(option => (
+                      <option key={option} value={option}>{option}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type={field.type}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    value={formData[field.name] || ''}
+                    onChange={(e) => setFormData({...formData, [field.name]: e.target.value})}
+                    placeholder={field.placeholder}
+                    required={field.label.includes('*')}
+                  />
+                )}
+                {field.name === 'photo_url' && (
+                  <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
+                    <Camera className="w-3 h-3" />
+                    Або завантажте фото через камеру (функція буде доступна у повній версії)
+                  </p>
+                )}
+              </div>
+            ))}
+            
+            <div className="flex gap-4 pt-4">
+              <button
+                type="submit"
+                disabled={loading || !formData.name || (type === 'item' && !formData.category)}
+                className="flex-1 bg-indigo-600 text-white py-3 rounded-lg hover:bg-indigo-700 transition disabled:bg-gray-300 disabled:cursor-not-allowed"
+              >
+                {loading ? 'Збереження...' : (type === 'box' ? 'Створити коробку' : 'Зберегти річ')}
+              </button>
+              <button
+                type="button"
+                onClick={onCancel}
+                className="flex-1 bg-gray-200 text-gray-700 py-3 rounded-lg hover:bg-gray-300 transition"
+              >
+                Скасувати
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
   };
 
   const filteredItems = items.filter(item =>
@@ -251,91 +389,9 @@ const App = () => {
           <p className="text-center text-gray-600 mb-6">Твій особистий чулан</p>
           
           {view === 'login' ? (
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                <input
-                  type="email"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                  value={formData.email || ''}
-                  onChange={(e) => setFormData({...formData, email: e.target.value})}
-                  disabled={loading}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Пароль</label>
-                <input
-                  type="password"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                  value={formData.password || ''}
-                  onChange={(e) => setFormData({...formData, password: e.target.value})}
-                  disabled={loading}
-                  onKeyPress={(e) => e.key === 'Enter' && handleLogin(e)}
-                />
-              </div>
-              <button 
-                onClick={handleLogin} 
-                disabled={loading}
-                className="w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 transition disabled:bg-gray-300 disabled:cursor-not-allowed"
-              >
-                {loading ? 'Вхід...' : 'Увійти'}
-              </button>
-              <button 
-                onClick={() => setView('register')} 
-                disabled={loading}
-                className="w-full text-indigo-600 hover:underline disabled:text-gray-400"
-              >
-                Немає акаунта? Зареєструватись
-              </button>
-            </div>
+            <AuthForm isLogin={true} />
           ) : (
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Ім'я користувача</label>
-                <input
-                  type="text"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                  value={formData.username || ''}
-                  onChange={(e) => setFormData({...formData, username: e.target.value})}
-                  disabled={loading}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                <input
-                  type="email"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                  value={formData.email || ''}
-                  onChange={(e) => setFormData({...formData, email: e.target.value})}
-                  disabled={loading}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Пароль</label>
-                <input
-                  type="password"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                  value={formData.password || ''}
-                  onChange={(e) => setFormData({...formData, password: e.target.value})}
-                  disabled={loading}
-                  onKeyPress={(e) => e.key === 'Enter' && handleRegister(e)}
-                />
-              </div>
-              <button 
-                onClick={handleRegister} 
-                disabled={loading}
-                className="w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 transition disabled:bg-gray-300 disabled:cursor-not-allowed"
-              >
-                {loading ? 'Реєстрація...' : 'Зареєструватись'}
-              </button>
-              <button 
-                onClick={() => setView('login')} 
-                disabled={loading}
-                className="w-full text-indigo-600 hover:underline disabled:text-gray-400"
-              >
-                Вже є акаунт? Увійти
-              </button>
-            </div>
+            <AuthForm isLogin={false} />
           )}
         </div>
       </div>
@@ -404,73 +460,13 @@ const App = () => {
         )}
 
         {view === 'addBox' && (
-          <div className="max-w-2xl mx-auto">
-            <button
-              onClick={() => setView('boxes')}
-              className="mb-4 flex items-center gap-2 text-indigo-600 hover:underline"
-            >
-              <ArrowLeft className="w-5 h-5" />
-              Назад до коробок
-            </button>
-            
-            <div className="bg-white rounded-xl shadow-md p-6">
-              <h2 className="text-2xl font-bold text-gray-800 mb-6">Додати нову коробку</h2>
-              
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Назва коробки *</label>
-                  <input
-                    type="text"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                    value={formData.name || ''}
-                    onChange={(e) => setFormData({...formData, name: e.target.value})}
-                    placeholder="Наприклад: Літній одяг"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Опис</label>
-                  <textarea
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
-                    rows={3}
-                    value={formData.description || ''}
-                    onChange={(e) => setFormData({...formData, description: e.target.value})}
-                    placeholder="Опишіть вміст коробки..."
-                  ></textarea>
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Місцезнаходження</label>
-                  <input
-                    type="text"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                    value={formData.location || ''}
-                    onChange={(e) => setFormData({...formData, location: e.target.value})}
-                    placeholder="Наприклад: Гараж, верхня полиця"
-                  />
-                </div>
-                
-                <div className="flex gap-4 pt-4">
-                  <button
-                    onClick={handleAddBox}
-                    disabled={!formData.name}
-                    className="flex-1 bg-indigo-600 text-white py-3 rounded-lg hover:bg-indigo-700 transition disabled:bg-gray-300 disabled:cursor-not-allowed"
-                  >
-                    Створити коробку
-                  </button>
-                  <button
-                    onClick={() => {
-                      setView('boxes');
-                      setFormData({});
-                    }}
-                    className="flex-1 bg-gray-200 text-gray-700 py-3 rounded-lg hover:bg-gray-300 transition"
-                  >
-                    Скасувати
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
+          <CreateForm 
+            type="box" 
+            onCancel={() => {
+              setView('boxes');
+              setFormData({});
+            }} 
+          />
         )}
 
         {view === 'boxDetail' && selectedBox && (
@@ -494,18 +490,13 @@ const App = () => {
                   <p className="text-gray-600">{selectedBox.description}</p>
                   <p className="text-sm text-gray-500 mt-2">📍 {selectedBox.location}</p>
                 </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => {
-                      const email = prompt('Введіть email користувача для спільного доступу:');
-                      if (email) handleShareBox(selectedBox.id, email);
-                    }}
-                    className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition"
-                  >
-                    <Share2 className="w-4 h-4" />
-                    Поділитися
-                  </button>
-                </div>
+                <button
+                  onClick={() => handleShareBox(selectedBox.id)}
+                  className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition"
+                >
+                  <Share2 className="w-4 h-4" />
+                  Поділитися
+                </button>
               </div>
             </div>
 
@@ -576,97 +567,13 @@ const App = () => {
         )}
 
         {view === 'addItem' && selectedBox && (
-          <div className="max-w-2xl mx-auto">
-            <button
-              onClick={() => setView('boxDetail')}
-              className="mb-4 flex items-center gap-2 text-indigo-600 hover:underline"
-            >
-              <ArrowLeft className="w-5 h-5" />
-              Назад
-            </button>
-            
-            <div className="bg-white rounded-xl shadow-md p-6">
-              <h2 className="text-2xl font-bold text-gray-800 mb-6">Додати нову річ</h2>
-              
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Назва речі *</label>
-                  <input
-                    type="text"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                    value={formData.name || ''}
-                    onChange={(e) => setFormData({...formData, name: e.target.value})}
-                    placeholder="Наприклад: Футболка Nike"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Опис</label>
-                  <textarea
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
-                    rows={3}
-                    value={formData.description || ''}
-                    onChange={(e) => setFormData({...formData, description: e.target.value})}
-                    placeholder="Додайте детальний опис..."
-                  ></textarea>
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Категорія *</label>
-                  <select
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                    value={formData.category || ''}
-                    onChange={(e) => setFormData({...formData, category: e.target.value})}
-                  >
-                    <option value="">Виберіть категорію</option>
-                    <option value="Одяг">Одяг</option>
-                    <option value="Електроніка">Електроніка</option>
-                    <option value="Книги">Книги</option>
-                    <option value="Посуд">Посуд</option>
-                    <option value="Інструменти">Інструменти</option>
-                    <option value="Іграшки">Іграшки</option>
-                    <option value="Спорт">Спорт</option>
-                    <option value="Декор">Декор</option>
-                    <option value="Інше">Інше</option>
-                  </select>
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">URL фото</label>
-                  <input
-                    type="url"
-                    placeholder="https://example.com/photo.jpg"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                    value={formData.photo_url || ''}
-                    onChange={(e) => setFormData({...formData, photo_url: e.target.value})}
-                  />
-                  <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
-                    <Camera className="w-3 h-3" />
-                    Або завантажте фото через камеру (функція буде доступна у повній версії)
-                  </p>
-                </div>
-                
-                <div className="flex gap-4 pt-4">
-                  <button
-                    onClick={handleAddItem}
-                    disabled={!formData.name || !formData.category}
-                    className="flex-1 bg-indigo-600 text-white py-3 rounded-lg hover:bg-indigo-700 transition disabled:bg-gray-300 disabled:cursor-not-allowed"
-                  >
-                    Зберегти річ
-                  </button>
-                  <button
-                    onClick={() => {
-                      setView('boxDetail');
-                      setFormData({});
-                    }}
-                    className="flex-1 bg-gray-200 text-gray-700 py-3 rounded-lg hover:bg-gray-300 transition"
-                  >
-                    Скасувати
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
+          <CreateForm 
+            type="item" 
+            onCancel={() => {
+              setView('boxDetail');
+              setFormData({});
+            }} 
+          />
         )}
       </main>
     </div>
