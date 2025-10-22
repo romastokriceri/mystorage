@@ -1,18 +1,19 @@
 services:
   db:
-    image: postgres:15
+    image: postgres:15-alpine
     container_name: mystorage_db
     restart: unless-stopped
     environment:
-      POSTGRES_DB: mystorage
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-mystorage123}
+      POSTGRES_DB: mystorage_db
+      POSTGRES_USER: mystorage_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mystorage_password}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
       - app_network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U mystorage_user -d mystorage_db"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -27,13 +28,14 @@ services:
       db:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://postgres:${DB_PASSWORD:-mystorage123}@db:5432/mystorage
+      DATABASE_URL: postgresql://mystorage_user:${POSTGRES_PASSWORD:-mystorage_password}@db:5432/mystorage_db
       SECRET_KEY: ${SECRET_KEY:-your-secret-key-change-in-production}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
     volumes:
-      - ./uploads:/app/uploads
+      - ./media:/app/media
     networks:
       - app_network
-    command: uvicorn main:app --host 0.0.0.0 --port 8000
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4
 
   frontend:
     build:
