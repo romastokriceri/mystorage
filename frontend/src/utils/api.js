@@ -3,16 +3,19 @@ const API_URL = process.env.REACT_APP_API_URL || '/api';
 class API {
   constructor() {
     this.token = localStorage.getItem('token');
+    console.log('API initialized with token:', this.token ? 'YES' : 'NO');
   }
 
   setToken(token) {
     this.token = token;
     localStorage.setItem('token', token);
+    console.log('Token set in API:', token ? 'YES' : 'NO');
   }
 
   clearToken() {
     this.token = null;
     localStorage.removeItem('token');
+    console.log('Token cleared');
   }
 
   async request(endpoint, options = {}) {
@@ -30,9 +33,14 @@ class API {
       headers,
     };
 
+    console.log(`Making request to: ${API_URL}${endpoint}`);
+    console.log('Headers:', headers);
+
     try {
       const response = await fetch(`${API_URL}${endpoint}`, config);
       
+      console.log(`Response status: ${response.status} for ${endpoint}`);
+
       if (response.status === 401) {
         this.clearToken();
         window.location.href = '/login';

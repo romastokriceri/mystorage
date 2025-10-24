@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Camera, Package, Plus, Edit2, Trash2, LogOut, Search, Tag, ArrowLeft, Users, Share2 } from 'lucide-react';
-
-const API_URL = '/api';
+import api from './utils/api'; // Додаємо імпорт api
 
 const App = () => {
   const [token, setToken] = useState(localStorage.getItem('token'));
@@ -44,60 +43,40 @@ const App = () => {
     }
   }, [selectedBox]);
 
-  const apiRequest = async (endpoint, options = {}) => {
-    const config = {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        ...options.headers,
-      },
-      ...options,
-    };
-
-    try {
-      const response = await fetch(`${API_URL}${endpoint}`, config);
-      
-      if (response.status === 401) {
-        handleLogout();
-        throw new Error('Неавторизований доступ');
-      }
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || `Помилка: ${response.status}`);
-      }
-
-      return await response.json();
-    } catch (error) {
-      console.error('API Error:', error);
-      throw error;
-    }
-  };
-
   const fetchCurrentUser = async () => {
     try {
-      const user = await apiRequest('/auth/me');
+      const user = await api.getMe();
       setCurrentUser(user);
     } catch (error) {
       console.error('Помилка завантаження користувача:', error);
+      // Якщо помилка авторизації, виходимо
+      if (error.message === 'Unauthorized') {
+        handleLogout();
+      }
     }
   };
 
   const fetchBoxes = async () => {
     try {
-      const boxesData = await apiRequest('/boxes');
+      const boxesData = await api.getBoxes();
       setBoxes(boxesData);
     } catch (error) {
       console.error('Помилка завантаження коробок:', error);
+      if (error.message === 'Unauthorized') {
+        handleLogout();
+      }
     }
   };
 
   const fetchItems = async (boxId) => {
     try {
-      const itemsData = await apiRequest(`/items?box_id=${boxId}`);
+      const itemsData = await api.getItems(boxId);
       setItems(itemsData);
     } catch (error) {
       console.error('Помилка завантаження речей:', error);
+      if (error.message === 'Unauthorized') {
+        handleLogout();
+      }
       setItems([]);
     }
   };
@@ -107,44 +86,31 @@ const App = () => {
     setLoading(true);
 
     try {
-      const endpoint = isLogin ? '/auth/login' : '/auth/register';
-      const response = await fetch(`${API_URL}${endpoint}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(isLogin ? {
-          email: formData.email,
-          password: formData.password,
-        } : {
-          username: formData.username,
-          email: formData.email,
-          password: formData.password,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || (isLogin ? 'Невірний email або пароль' : 'Помилка реєстрації'));
-      }
-
       if (isLogin) {
-        const data = await response.json();
-        const newToken = data.access_token;
-        localStorage.setItem('token', newToken);
+        // Використовуємо api.js для логіну
+        await api.login(formData.email, formData.password);
+        const newToken = localStorage.getItem('token');
         setToken(newToken);
         setView('boxes');
       } else {
-        alert('Реєстрація успішна! Увійдіть у систему');
-        setView('login');
+        // Використовуємо api.js для реєстрації
+        await api.register(formData.username, formData.email, formData.password);
+        // Auto-login after register
+        await api.login(formData.email, formData.password);
+        const newToken = localStorage.getItem('token');
+        setToken(newToken);
+        setView('boxes');
       }
       setFormData({});
     } catch (error) {
-      alert(error.message);
+      alert(error.message || (isLogin ? 'Невірний email або пароль' : 'Помилка реєстрації'));
     } finally {
       setLoading(false);
     }
   };
 
   const handleLogout = () => {
+    api.clearToken();
     localStorage.removeItem('token');
     setToken(null);
     setView('login');
@@ -159,28 +125,22 @@ const App = () => {
     setLoading(true);
 
     try {
-      const endpoint = type === 'box' ? '/boxes' : '/items';
-      const body = type === 'box' ? {
-        name: formData.name,
-        description: formData.description || '',
-        location: formData.location || '',
-      } : {
-        name: formData.name,
-        description: formData.description || '',
-        category: formData.category,
-        photo_url: formData.photo_url || '',
-        box_id: selectedBox.id,
-      };
-
-      const newItem = await apiRequest(endpoint, {
-        method: 'POST',
-        body: JSON.stringify(body),
-      });
-
       if (type === 'box') {
-        setBoxes([...boxes, newItem]);
+        const newBox = await api.createBox({
+          name: formData.name,
+          description: formData.description || '',
+          location: formData.location || '',
+        });
+        setBoxes([...boxes, newBox]);
         setView('boxes');
       } else {
+        const newItem = await api.createItem({
+          name: formData.name,
+          description: formData.description || '',
+          category: formData.category,
+          photo_url: formData.photo_url || '',
+          box_id: selectedBox.id,
+        });
         setItems([...items, newItem]);
         setView('boxDetail');
       }
@@ -196,7 +156,7 @@ const App = () => {
     if (!window.confirm('Видалити цю річ?')) return;
 
     try {
-      await apiRequest(`/items/${itemId}`, { method: 'DELETE' });
+      await api.deleteItem(itemId);
       setItems(items.filter(item => item.id !== itemId));
     } catch (error) {
       alert('Помилка видалення речі: ' + error.message);
@@ -208,10 +168,7 @@ const App = () => {
     if (!userEmail) return;
 
     try {
-      await apiRequest(`/boxes/${boxId}/share`, {
-        method: 'POST',
-        body: JSON.stringify({ user_email: userEmail }),
-      });
+      await api.shareBox(boxId, userEmail);
       alert('Коробку поділено успішно!');
     } catch (error) {
       alert('Помилка спільного доступу: ' + error.message);
