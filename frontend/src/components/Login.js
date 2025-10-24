@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 
 function Login() {
@@ -12,7 +11,6 @@ function Login() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const { login, register } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
@@ -21,11 +19,35 @@ function Login() {
     setLoading(true);
 
     try {
+      let response;
       if (isLogin) {
-        await login(formData.email, formData.password);
+        response = await fetch('http://192.168.0.143:8000/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: formData.email, password: formData.password }),
+        });
       } else {
-        await register(formData.username, formData.email, formData.password);
+        response = await fetch('http://192.168.0.143:8000/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: formData.username, email: formData.email, password: formData.password }),
+        });
+        if (response.ok && isLogin === false) {
+          // Auto-login after register
+          response = await fetch('http://192.168.0.143:8000/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: formData.email, password: formData.password }),
+          });
+        }
       }
+
+      if (!response.ok) {
+        throw new Error('Failed');
+      }
+
+      const data = await response.json();
+      localStorage.setItem('token', data.access_token);
       navigate('/');
     } catch (err) {
       setError(err.message || 'Something went wrong');
