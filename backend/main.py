@@ -20,7 +20,7 @@ app = FastAPI(title="MyStorage API")
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://192.168.0.143", "http://localhost"], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

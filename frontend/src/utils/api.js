@@ -1,4 +1,4 @@
-const API_URL = process.env.REACT_APP_API_URL || '/api';
+const API_URL = process.env.REACT_APP_API_URL || 'http://192.168.0.143:8000/api';
 
 class API {
   constructor() {
