@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import api from '../utils/api'; // Додаємо імпорт api
 
 function Login() {
   const [isLogin, setIsLogin] = useState(true);
@@ -19,35 +20,16 @@ function Login() {
     setLoading(true);
 
     try {
-      let response;
       if (isLogin) {
-        response = await fetch('http://192.168.0.143:8000/api/auth/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: formData.email, password: formData.password }),
-        });
+        // Використовуємо api.js для логіну
+        await api.login(formData.email, formData.password);
       } else {
-        response = await fetch('http://192.168.0.143:8000/api/auth/register', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username: formData.username, email: formData.email, password: formData.password }),
-        });
-        if (response.ok && isLogin === false) {
-          // Auto-login after register
-          response = await fetch('http://192.168.0.143:8000/api/auth/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: formData.email, password: formData.password }),
-          });
-        }
+        // Використовуємо api.js для реєстрації
+        await api.register(formData.username, formData.email, formData.password);
+        // Auto-login after register
+        await api.login(formData.email, formData.password);
       }
-
-      if (!response.ok) {
-        throw new Error('Failed');
-      }
-
-      const data = await response.json();
-      localStorage.setItem('token', data.access_token);
+      
       navigate('/');
     } catch (err) {
       setError(err.message || 'Something went wrong');
