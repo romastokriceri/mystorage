@@ -60,6 +60,22 @@ mystorage/
 
 ## 🛠️ Technologies
 
+
+### **Migrations (Alembic)**
+
+```bash
+cd backend
+alembic upgrade head
+alembic revision --autogenerate -m "describe_change"
+```
+
+### **Integration tests**
+
+```bash
+cd backend
+pytest -q
+```
+
 ### **Frontend**
 - ⚛️ React 18 – UI framework  
 - 🎨 Tailwind CSS (CDN) – Styling  
@@ -134,7 +150,7 @@ SECRET_KEY=your_generated_secret_key_min_64_chars
 ENVIRONMENT=production
 
 # CORS
-CORS_ORIGINS=https://yourdomain.com
+CORS_ORIGINS=http://localhost,http://127.0.0.1,https://yourdomain.com
 ```
 
 > ⚠️ **Never commit `.env` files to Git!**
@@ -183,7 +199,24 @@ python -m venv venv
 source venv/bin/activate   # Linux/Mac
 venv\Scripts\activate      # Windows
 pip install -r requirements.txt
+alembic upgrade head
 uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+
+### **Migrations (Alembic)**
+
+```bash
+cd backend
+alembic upgrade head
+alembic revision --autogenerate -m "describe_change"
+```
+
+### **Integration tests**
+
+```bash
+cd backend
+pytest -q
 ```
 
 ### **Frontend**
