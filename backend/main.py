@@ -1,34 +1,33 @@
-from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 import models
 import schemas
 import auth
-from database import engine
 import os
 import uuid
 import shutil
 from pathlib import Path
 
-# Створення таблиць
-models.Base.metadata.create_all(bind=engine)
-
 app = FastAPI(title="MyStorage API")
+
+cors_origins_raw = os.getenv("CORS_ORIGINS", "http://localhost,http://127.0.0.1")
+allow_origins = [origin.strip() for origin in cors_origins_raw.split(",") if origin.strip()]
 
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://192.168.0.143", "http://localhost"], 
+    allow_origins=allow_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # Папка для uploads
-UPLOAD_DIR = Path("/app/uploads")
-UPLOAD_DIR.mkdir(exist_ok=True)
+UPLOAD_DIR = Path("/app/media/uploads")
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 
 @app.get("/")
@@ -220,13 +219,23 @@ def unshare_box(
 
 @app.get("/api/items", response_model=List[schemas.Item])
 def get_items(
-    box_id: int = None,
+    box_id: Optional[int] = None,
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(auth.get_db)
 ):
-    query = db.query(models.Item)
-    if box_id:
+    accessible_box_ids = [box.id for box in current_user.boxes] + [box.id for box in current_user.shared_boxes]
+
+    if box_id is not None and box_id not in accessible_box_ids:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if not accessible_box_ids:
+        return []
+
+    query = db.query(models.Item).filter(models.Item.box_id.in_(accessible_box_ids))
+
+    if box_id is not None:
         query = query.filter(models.Item.box_id == box_id)
+
     return query.all()
 
 @app.post("/api/items", response_model=schemas.Item)

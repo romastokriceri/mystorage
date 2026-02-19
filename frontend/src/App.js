@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Camera, Package, Plus, Edit2, Trash2, LogOut, Search, Tag, ArrowLeft, Users, Share2 } from 'lucide-react';
 import api from './utils/api'; // Додаємо імпорт api
 
@@ -12,6 +12,54 @@ const App = () => {
   const [formData, setFormData] = useState({});
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(false);
+
+  const onUnauthorized = useCallback(() => {
+    api.clearToken();
+    localStorage.removeItem('token');
+    setToken(null);
+    setView('login');
+    setBoxes([]);
+    setItems([]);
+    setSelectedBox(null);
+    setCurrentUser(null);
+  }, []);
+
+  const fetchCurrentUser = useCallback(async () => {
+    try {
+      const user = await api.getMe();
+      setCurrentUser(user);
+    } catch (error) {
+      console.error('Помилка завантаження користувача:', error);
+      if (error.message === 'Unauthorized') {
+        onUnauthorized();
+      }
+    }
+  }, [onUnauthorized]);
+
+  const fetchBoxes = useCallback(async () => {
+    try {
+      const boxesData = await api.getBoxes();
+      setBoxes(boxesData);
+    } catch (error) {
+      console.error('Помилка завантаження коробок:', error);
+      if (error.message === 'Unauthorized') {
+        onUnauthorized();
+      }
+    }
+  }, [onUnauthorized]);
+
+  const fetchItems = useCallback(async (boxId) => {
+    try {
+      const itemsData = await api.getItems(boxId);
+      setItems(itemsData);
+    } catch (error) {
+      console.error('Помилка завантаження речей:', error);
+      if (error.message === 'Unauthorized') {
+        onUnauthorized();
+      }
+      setItems([]);
+    }
+  }, [onUnauthorized]);
 
   // Автоматична синхронізація кожні 5 хвилин
   useEffect(() => {
@@ -28,57 +76,23 @@ const App = () => {
     const interval = setInterval(syncData, 5 * 60 * 1000);
 
     return () => clearInterval(interval);
-  }, [token, selectedBox]);
+  }, [token, selectedBox, fetchBoxes, fetchItems]);
 
   useEffect(() => {
     if (token) {
       fetchCurrentUser();
       fetchBoxes();
     }
-  }, [token]);
+  }, [token, fetchCurrentUser, fetchBoxes]);
 
   useEffect(() => {
     if (selectedBox) {
       fetchItems(selectedBox.id);
     }
-  }, [selectedBox]);
+  }, [selectedBox, fetchItems]);
 
-  const fetchCurrentUser = async () => {
-    try {
-      const user = await api.getMe();
-      setCurrentUser(user);
-    } catch (error) {
-      console.error('Помилка завантаження користувача:', error);
-      // Якщо помилка авторизації, виходимо
-      if (error.message === 'Unauthorized') {
-        handleLogout();
-      }
-    }
-  };
-
-  const fetchBoxes = async () => {
-    try {
-      const boxesData = await api.getBoxes();
-      setBoxes(boxesData);
-    } catch (error) {
-      console.error('Помилка завантаження коробок:', error);
-      if (error.message === 'Unauthorized') {
-        handleLogout();
-      }
-    }
-  };
-
-  const fetchItems = async (boxId) => {
-    try {
-      const itemsData = await api.getItems(boxId);
-      setItems(itemsData);
-    } catch (error) {
-      console.error('Помилка завантаження речей:', error);
-      if (error.message === 'Unauthorized') {
-        handleLogout();
-      }
-      setItems([]);
-    }
+  const handleLogout = () => {
+    onUnauthorized();
   };
 
   const handleAuth = async (e, isLogin = true) => {
@@ -107,17 +121,6 @@ const App = () => {
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleLogout = () => {
-    api.clearToken();
-    localStorage.removeItem('token');
-    setToken(null);
-    setView('login');
-    setBoxes([]);
-    setItems([]);
-    setSelectedBox(null);
-    setCurrentUser(null);
   };
 
   const handleCreate = async (e, type) => {
