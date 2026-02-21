@@ -43,7 +43,6 @@ class API {
 
       if (response.status === 401) {
         this.clearToken();
-        window.location.href = '/login';
         throw new Error('Unauthorized');
       }
 
@@ -72,6 +71,8 @@ class API {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     });
+    console.log('Login response data:', data);
+    console.log('access_token:', data.access_token);
     this.setToken(data.access_token);
     return data;
   }

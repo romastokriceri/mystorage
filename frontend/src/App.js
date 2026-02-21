@@ -2,7 +2,61 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Camera, Package, Plus, Edit2, Trash2, LogOut, Search, Tag, ArrowLeft, Users, Share2 } from 'lucide-react';
 import api from './utils/api'; // Додаємо імпорт api
 
-const App = () => {
+const AuthForm = ({ isLogin, handleAuth, setView, loading }) => {
+  const [localData, setLocalData] = useState({});
+  return (
+    <form onSubmit={(e) => handleAuth(e, isLogin, localData)} className="space-y-4">
+      {!isLogin && (
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Ім'я користувача</label>
+          <input
+            type="text"
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+            value={localData.username || ''}
+            onChange={(e) => setLocalData({...localData, username: e.target.value})}
+            disabled={loading}
+            required
+          />
+        </div>
+      )}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+        <input
+          type="email"
+          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+          value={localData.email || ''}
+          onChange={(e) => setLocalData({...localData, email: e.target.value})}
+          disabled={loading}
+          required
+        />
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Пароль</label>
+        <input
+          type="password"
+          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+          value={localData.password || ''}
+          onChange={(e) => setLocalData({...localData, password: e.target.value})}
+          disabled={loading}
+          required
+        />
+      </div>
+      <button type="submit" disabled={loading}
+        className="w-full bg-indigo-600 text-white py-2 px-4 rounded-lg hover:bg-indigo-700 disabled:opacity-50">
+        {loading ? 'Завантаження...' : (isLogin ? 'Увійти' : 'Зареєструватись')}
+      </button>
+      <p className="text-center text-sm text-gray-600">
+        {isLogin ? 'Немає акаунту? ' : 'Вже є акаунт? '}
+        <button type="button" onClick={() => setView(isLogin ? 'register' : 'login')}
+          className="text-indigo-600 hover:underline">
+          {isLogin ? 'Зареєструватись' : 'Увійти'}
+        </button>
+      </p>
+    </form>
+  );
+};
+
+ const App = () => {
   const [token, setToken] = useState(localStorage.getItem('token'));
   const [currentUser, setCurrentUser] = useState(null);
   const [boxes, setBoxes] = useState([]);
@@ -95,24 +149,24 @@ const App = () => {
     onUnauthorized();
   };
 
-  const handleAuth = async (e, isLogin = true) => {
+  const handleAuth = async (e, isLogin = true, localData = {}) => {
     e.preventDefault();
     setLoading(true);
 
     try {
       if (isLogin) {
         // Використовуємо api.js для логіну
-        await api.login(formData.email, formData.password);
-        const newToken = localStorage.getItem('token');
-        setToken(newToken);
+      	const loginData = await api.login(localData.email, localData.password);
+	setToken(loginData.access_token);
+	api.setToken(loginData.access_token);
         setView('boxes');
       } else {
         // Використовуємо api.js для реєстрації
-        await api.register(formData.username, formData.email, formData.password);
-        // Auto-login after register
-        await api.login(formData.email, formData.password);
-        const newToken = localStorage.getItem('token');
-        setToken(newToken);
+       
+	await api.register(localData.username, localData.email, localData.password);
+	const loginData = await api.login(localData.email, localData.password);
+	setToken(loginData.access_token);
+	api.setToken(loginData.access_token);
         setView('boxes');
       }
       setFormData({});
@@ -177,61 +231,6 @@ const App = () => {
       alert('Помилка спільного доступу: ' + error.message);
     }
   };
-
-  const AuthForm = ({ isLogin }) => (
-    <form onSubmit={(e) => handleAuth(e, isLogin)} className="space-y-4">
-      {!isLogin && (
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Ім'я користувача</label>
-          <input
-            type="text"
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-            value={formData.username || ''}
-            onChange={(e) => setFormData({...formData, username: e.target.value})}
-            disabled={loading}
-            required
-          />
-        </div>
-      )}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-        <input
-          type="email"
-          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-          value={formData.email || ''}
-          onChange={(e) => setFormData({...formData, email: e.target.value})}
-          disabled={loading}
-          required
-        />
-      </div>
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Пароль</label>
-        <input
-          type="password"
-          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-          value={formData.password || ''}
-          onChange={(e) => setFormData({...formData, password: e.target.value})}
-          disabled={loading}
-          required
-        />
-      </div>
-      <button 
-        type="submit"
-        disabled={loading}
-        className="w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 transition disabled:bg-gray-300 disabled:cursor-not-allowed"
-      >
-        {loading ? (isLogin ? 'Вхід...' : 'Реєстрація...') : (isLogin ? 'Увійти' : 'Зареєструватись')}
-      </button>
-      <button 
-        type="button"
-        onClick={() => setView(isLogin ? 'register' : 'login')} 
-        disabled={loading}
-        className="w-full text-indigo-600 hover:underline disabled:text-gray-400"
-      >
-        {isLogin ? 'Немає акаунта? Зареєструватись' : 'Вже є акаунт? Увійти'}
-      </button>
-    </form>
-  );
 
   const CreateForm = ({ type, onCancel }) => {
     const fields = {
@@ -349,9 +348,9 @@ const App = () => {
           <p className="text-center text-gray-600 mb-6">Твій особистий чулан</p>
           
           {view === 'login' ? (
-            <AuthForm isLogin={true} />
+	    <AuthForm isLogin={true} handleAuth={handleAuth} setView={setView} loading={loading} />
           ) : (
-            <AuthForm isLogin={false} />
+	    <AuthForm isLogin={false} handleAuth={handleAuth} setView={setView} loading={loading} />
           )}
         </div>
       </div>
