@@ -69,9 +69,10 @@ services:
       frontend:
         condition: service_started
     ports:
-      - "8000:80"
-      - "8443:443"
+      - "80:80"
+      - "443:443"
     volumes:
+      - /var/www/mystorage:/usr/share/nginx/html:ro
       - ./nginx/ssl:/etc/nginx/ssl:ro
     networks:
       - app_network

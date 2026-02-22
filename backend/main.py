@@ -67,7 +67,7 @@ def login(user: schemas.UserLogin, db: Session = Depends(auth.get_db)):
     if not db_user or not auth.verify_password(user.password, db_user.password_hash):
         raise HTTPException(status_code=400, detail="Incorrect email or password")
     
-    access_token = auth.create_access_token(data={"sub": db_user.id})
+    access_token = auth.create_access_token(data={"sub": str(db_user.id)})
     return {"access_token": access_token, "token_type": "bearer"}
 
 @app.get("/api/auth/me", response_model=schemas.User)
