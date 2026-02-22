@@ -257,7 +257,7 @@ const App = () => {
                   </div>
                   <p className="text-gray-600 text-sm mb-2">{box.description}</p>
                   <p className="text-sm text-gray-500">📍 {box.location}</p>
-                  <p className="text-sm text-indigo-600 font-medium mt-2">{box.items_count || 0} речей</p>
+                  <p className="text-sm text-indigo-600 font-medium mt-2">{box.items ? box.items.length : 0} речей</p>
                 </div>
               ))}
             </div>
